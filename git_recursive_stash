@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+
+action="$1"
+
+SOURCE="${BASH_SOURCE[0]}"
+SOURCE=$(readlink -f "$SOURCE")
+SOURCE_DIR=$(dirname "$SOURCE")
+
+case $action in
+    save )
+        $SOURCE_DIR/git_recursive_stash_save
+        ;;
+    apply )
+        $SOURCE_DIR/git_recursive_stash_apply
+        ;;
+    pop )
+        $SOURCE_DIR/git_recursive_stash_apply &&
+            $SOURCE_DIR/git_recursive_stash_delete
+        ;;
+    *)
+        echo "Invalid command: expected one of save, apply or pop"
+        exit 1
+        ;;
+esac

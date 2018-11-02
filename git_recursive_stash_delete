@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+
+SOURCE="${BASH_SOURCE[0]}"
+SOURCE=$(readlink -f "$SOURCE")
+SOURCE_DIR=$(dirname "$SOURCE")
+
+
+if (git rev-parse --is-inside-work-tree 2> /dev/null 1>&2); then
+	:
+else
+    err_code=$?
+    echo "Not inside git repository"
+    exit $err_code
+fi
+
+# get information regarding branch and whatnot
+stash_info=$(git rev-list -1 --format=format:%s recstash | tail -n 1)
+current_recstash_id=$(echo "$stash_info" | (read _ current_recstash_id; echo $current_recstash_id))
+
+# assert that we're in the root directory
+if [[ "$current_recstash_id" == "root" ]]; then
+	:
+else
+	err_code=$?
+    echo "Not inside the root repository. Delete can only be called from the root repository"
+    exit $err_code
+fi
+
+# get root directory of repository
+repo_root="$(git rev-parse --show-toplevel)"
+
+git update-ref -d recstash
+git submodule foreach --recursive git update-ref -d recstash

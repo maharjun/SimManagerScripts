@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+
+SOURCE="${BASH_SOURCE[0]}"
+SOURCE=$(readlink -f "$SOURCE")
+SOURCE_DIR=$(dirname "$SOURCE")
+
+if (git rev-parse --is-inside-work-tree 2> /dev/null 1>&2); then
+    :
+else
+    err_code=$?
+    echo "Not inside git repository"
+    exit $err_code
+fi
+
+current_recstash_id="$1"
+
+if [[ -z "$current_recstash_id" ]]; then
+    current_recstash_id="root"
+fi
+
+# get root directory of repository
+repo_root="$(git rev-parse --show-toplevel)"
+
+# get current HEAD
+if (git symbolic-ref --short HEAD 2> /dev/null 1>&2); then
+    head=$(git symbolic-ref --short HEAD 2> /dev/null)
+else
+    head=$(git rev-parse HEAD)
+fi
+
+pushd $repo_root > /dev/null
+    # create index commit
+    index_commit=$(git commit-tree -p HEAD $(git write-tree) -m "Index at $head")
+
+    # for final commit
+    # add all the tracked files
+    git add -u .
+    final_commit=$(git commit-tree -p HEAD -p $index_commit $(git write-tree) \
+                       -m "$head $current_recstash_id")
+
+    echo "Creating stash for submodules recursively"
+    if git submodule foreach $SOURCE $final_commit; then
+        :
+    else
+        err_code=$?
+        echo "Could not stash submodules"
+        exit $err_code
+    fi
+popd > /dev/null
+
+if ! (git show-ref | grep -q recstash) && (git update-ref -m "Creating recurrent stash commit" recstash $final_commit "") ; then
+    :
+else
+    err_code=$?
+    echo "The ref recstash for $repo_root could not be created as there already exists a ref by that name"
+    git submodule foreach --quiet git update-ref -m "Deleting unused recurrent stash" -d recstash
+    exit $err_code
+fi
+
+# Mass destruction. Is only done if everything else uptil now is successful
+echo "Created recursive stash in ref recstash commit id $final_commit"
+if [[ "$current_recstash_id" = "root" ]]; then
+    git reset --hard --quiet
+    git submodule foreach --quiet git reset --hard --quiet
+    git submodule update --quiet --init --recursive
+fi

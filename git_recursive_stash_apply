@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+
+SOURCE="${BASH_SOURCE[0]}"
+SOURCE=$(readlink -f "$SOURCE")
+SOURCE_DIR=$(dirname "$SOURCE")
+
+if (git rev-parse --is-inside-work-tree 2> /dev/null 1>&2); then
+    :
+else
+    err_code=$?
+    echo "Not inside git repository"
+    exit $err_code
+fi
+
+current_recstash_id_given="$1"
+
+if [[ -z "$current_recstash_id_given" ]]; then
+    current_recstash_id_given="root"
+fi
+
+# get root directory of repository
+repo_root="$(git rev-parse --show-toplevel)"
+
+# get information regarding branch and whatnot
+stash_info=$(git rev-list -1 --format=format:%s recstash | tail -n 1)
+
+head=$(echo $stash_info | (read head current_recstash_id; echo $head))
+current_recstash_id=$(echo $stash_info | (read head current_recstash_id; echo $current_recstash_id))
+
+if [[ "$current_recstash_id" == "$current_recstash_id_given" ]]; then
+    :
+else
+    err_code=$?
+    echo "The given recstash id $current_recstash_id_given does not match the actual one $current_recstash_id"
+    exit $err_code
+fi
+
+worktreepatch="$(git diff-tree --patch recstash^1 recstash)"
+indexpatch="$(git diff-tree --patch recstash^1 recstash^2)"
+
+git checkout --quiet $head &&
+    git submodule update --init &&  # Initialize submodules in order for apply to work
+    if [[ -n "$worktreepatch" ]]; then
+        echo "$worktreepatch" | git apply --index --whitespace=nowarn;
+    else
+        :
+    fi &&  # Apply All changes
+    git submodule update --init &&  # update submodules
+    git reset --quiet  && # remove changes from index
+    if [[ -n "$indexpatch" ]]; then
+        echo "$indexpatch" | git apply --cached --whitespace=nowarn;
+    else
+        :
+    fi && # Apply index changes to only index
+    git submodule foreach $SOURCE $(git rev-parse recstash)
