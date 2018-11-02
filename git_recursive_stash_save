@@ -48,12 +48,12 @@ pushd $repo_root > /dev/null
     fi
 popd > /dev/null
 
-if ! (git show-ref | grep -q recstash) && (git update-ref -m "Creating recurrent stash commit" recstash $final_commit "") ; then
+if ! (git show-ref | grep -q recstash) && (git update-ref -m "Creating recurrent stash commit" --create-reflog refs/recstash "$final_commit" "") ; then
     :
 else
     err_code=$?
     echo "The ref recstash for $repo_root could not be created as there already exists a ref by that name"
-    git submodule foreach --quiet git update-ref -m "Deleting unused recurrent stash" -d recstash
+    git submodule foreach --quiet git update-ref -m "Deleting unused recurrent stash" -d refs/recstash
     exit $err_code
 fi
 

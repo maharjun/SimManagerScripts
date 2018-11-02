@@ -29,5 +29,5 @@ fi
 # get root directory of repository
 repo_root="$(git rev-parse --show-toplevel)"
 
-git update-ref -d recstash
-git submodule foreach --recursive git update-ref -d recstash
+git update-ref -d refs/recstash
+git submodule foreach --recursive git update-ref -d refs/recstash
