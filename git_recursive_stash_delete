@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 
+# call this function to write to stderr
+echo_stderr ()
+{
+    echo "$@" >&2
+}
+
 SOURCE="${BASH_SOURCE[0]}"
 SOURCE=$(readlink -f "$SOURCE")
 SOURCE_DIR=$(dirname "$SOURCE")
@@ -9,7 +15,7 @@ if (git rev-parse --is-inside-work-tree 2> /dev/null 1>&2); then
 	:
 else
     err_code=$?
-    echo "Not inside git repository"
+    echo_stderr "Not inside git repository"
     exit $err_code
 fi
 
@@ -22,7 +28,7 @@ if [[ "$current_recstash_id" == "root" ]]; then
 	:
 else
 	err_code=$?
-    echo "Not inside the root repository. Delete can only be called from the root repository"
+    echo_stderr "Not inside the root repository. Delete can only be called from the root repository"
     exit $err_code
 fi
 

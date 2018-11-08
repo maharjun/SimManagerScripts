@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 
+# call this function to write to stderr
+echo_stderr ()
+{
+    echo "$@" >&2
+}
+
 SOURCE="${BASH_SOURCE[0]}"
 SOURCE=$(readlink -f "$SOURCE")
 SOURCE_DIR=$(dirname "$SOURCE")
@@ -8,7 +14,7 @@ if (git rev-parse --is-inside-work-tree 2> /dev/null 1>&2); then
     :
 else
     err_code=$?
-    echo "Not inside git repository"
+    echo_stderr "Not inside git repository"
     exit $err_code
 fi
 
@@ -31,7 +37,7 @@ if [[ "$current_recstash_id" == "$current_recstash_id_given" ]]; then
     :
 else
     err_code=$?
-    echo "The given recstash id $current_recstash_id_given does not match the actual one $current_recstash_id"
+    echo_stderr "The given recstash id $current_recstash_id_given does not match the actual one $current_recstash_id"
     exit $err_code
 fi
 

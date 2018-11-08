@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 
+# call this function to write to stderr
+echo_stderr ()
+{
+    echo "$@" >&2
+}
+
 action="$1"
 
 SOURCE="${BASH_SOURCE[0]}"
@@ -18,7 +24,7 @@ case $action in
             $SOURCE_DIR/git_recursive_stash_delete
         ;;
     *)
-        echo "Invalid command: expected one of save, apply or pop"
+        echo_stderr "Invalid command: expected one of save, apply or pop"
         exit 1
         ;;
 esac
