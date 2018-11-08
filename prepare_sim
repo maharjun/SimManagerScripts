@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+
+cwd="$PWD"
+# call this function to write to stderr
+echo_stderr ()
+{
+    echo "$@" >&2
+}
+
+function join_by { local IFS="$1"; shift; echo "$*"; }
+
+# Check if inside a valid repository
+if (git rev-parse --is-inside-work-tree 2> /dev/null 1>&2); then
+    :
+else
+    err_code=$?
+    echo "Not inside git repository"
+    exit $err_code
+fi
+
+# get root directory of repository
+repo_root="$(git rev-parse --show-toplevel)"
+
+pushd $repo_root > /dev/null
+    # Create directory to store pending simulations
+    # Create the dir_to_create_sims if not present
+    dir_to_create_sims="../pending_sims_$(basename "$repo_root")"
+    if [[ ! -d "$dir_to_create_sims" ]]; then
+        if mkdir "$dir_to_create_sims"; then
+            :
+        else
+            echo_stderr "Could Not create directory '$dir_to_create_sims' to create the simulation defs"
+        fi
+    fi
+
+    # Ask for simulation name
+    while read -p "Enter Simulation Name (type 'exit' to exit): " sim_name; do
+
+        if [[ -e "./$dir_to_create_sims/$sim_name" ]]; then
+            echo_stderr "could not create $dir_to_create_sims/$sim_name, an object by this name already exists"
+        elif [[ "$sim_name" == "exit" ]]; then
+            echo_stderr "Exitting without preparing"
+            exit 1
+        else
+            mkdir "$dir_to_create_sims/$sim_name"
+            break
+        fi
+        echo "$dir_to_create_sims/$sim_name"
+    done
+popd > /dev/null
+
+
+pushd $repo_root > /dev/null
+    git rev-parse HEAD | head -c -1 > $dir_to_create_sims/$sim_name/.commit_id
+    subpatch.sh make > $dir_to_create_sims/$sim_name/.patch
+    echo -n "$cwd" > $dir_to_create_sims/$sim_name/cwd
+    join_by $'\n' "$@" > $dir_to_create_sims/$sim_name/command
+popd > /dev/null

@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+
+# call this function to write to stderr
+echo_stderr ()
+{
+    echo "$@" >&2
+}
+
+function join_by { local IFS="$1"; shift; echo "$*"; }
+
+sim_preparation_dir="$1"
+pushd "$sim_preparation_dir" &&
+    sim_preparation_dir="$PWD" &&
+popd
+err_code=$?
+if [[ $err_code -ne 0 ]]; then
+    echo_stderr "'$sim_preparation_dir' does not appear to be a valid directory"
+    exit $err_code
+fi
+
+# Shift to the relevant directory of the program
+if cd "$(cat $sim_preparation_dir/cwd)"; then
+    :
+else
+    echo_stderr "Could not change to directory from which to run the command"
+    exit $?
+fi
+
+# Check if inside a valid repository
+if (git rev-parse --is-inside-work-tree 2> /dev/null 1>&2); then
+    :
+else
+    err_code=$?
+    echo "The directory from which to run the command is not inside the git repository"
+    exit $err_code
+fi
+
+# get root directory of source repository (it is assumed that the current working directory is inside that)
+source_repo_root="$(git rev-parse --show-toplevel)"
+
+# Verify the validity of the repository in source_repo_root
+pushd $source_repo_root >/dev/null
+    if [[ $(git status --porcelain | wc -l) -ne 0 ]]; then
+        echo_stderr "There appear to be untracked/uncommitted files in \"$source_repo_root\". Will not continue checkout"
+        exit 1
+    fi
+popd >/dev/null
+
+# Apply patches to source directory as necessary
+pushd $source_repo_root > /dev/null
+    # Checkout and run relevant simulation
+    checkoutsim.sh $sim_preparation_dir &&
+        cd "$(cat $sim_preparation_dir/cwd)" &&
+        mapfile -t command_array < $sim_preparation_dir/command &&
+        (echo "Running The following command:";
+         echo "${command_array[@]}") &&
+
+        "${command_array[@]}" &&
+
+        git reset --hard &&
+        git submodule foreach --recursive git reset --hard &&
+        git submodule update --recursive --init
+popd > /dev/null
