@@ -1,4 +1,8 @@
 while read dirname; do
-    echo "$dirname"$'\t'"$(cat "$dirname/DESCRIPTION.yaml" | head -n 1)"
-    echo "$(cat "$dirname/DESCRIPTION.yaml" | tail -n +2 | sed 's/^/    -'$'\t''/')"
-done | column -t -s $'\t'
+    echo ""
+    echo "$dirname" | sed 's/./=/g'
+    echo "$dirname"
+    echo "$dirname" | sed 's/./=/g'
+    echo ""
+    echo "$(cat $dirname/DESCRIPTION.yaml | sed 's/^/    /')"
+done

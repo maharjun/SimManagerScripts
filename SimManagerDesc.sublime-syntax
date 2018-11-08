@@ -1,0 +1,60 @@
+%YAML 1.2
+---
+# See http://www.sublimetext.com/docs/3/syntax.html
+file_extensions:
+  - simmandesc
+scope: text.simmandesc
+
+contexts:
+  # # The prototype context is prepended to all contexts but those setting
+  # # meta_include_prototype: false.
+  # prototype:
+  #   - include: comments
+
+  main:
+    # The main context is the initial starting point of our syntax.
+    # Include other contexts from here (or specify them directly).
+    - include: directory
+    - include: yaml_block
+
+  directory:
+    # This is the context for the directory
+    # 
+    - match: ^=+$ # '^((?:=(?==))+)=\n.*\n\1='
+      push: directory_string
+
+  directory_string:
+    # - meta_content_scope: markup.heading.simmandesc
+    - match: ^=+$
+      pop: true
+
+  keywords:
+    - match: '^    \b(result|reason|keywords)\b:'
+      scope: entity.name.tag.simmandesc
+
+  title:
+    - match: '^    \b(title: )(.*)'
+      captures:
+        1: entity.name.tag.simmandesc
+        2: markup.italic.simmandesc
+
+  yaml_block:
+    # Strings begin and end with quotes, and use backslashes as an escape
+    # character.
+    - match: '^(?=    )'
+      push: inside_yaml_block
+
+  # yaml_block:
+  #   # Strings begin and end with quotes, and use backslashes as an escape
+  #   # character.
+  #   - match: '^    '
+  #     push: Packages/User/myYAML.sublime-syntax
+  #     with_prototype:
+  #       - match: (^(?==|$))
+  #         pop: true
+  inside_yaml_block:
+    - meta_scope: string.unquoted.plain.out
+    - include: title
+    - include: keywords
+    - match: (^(?==|$))  # (?=(=|$(?!\\n)))
+      pop: true
