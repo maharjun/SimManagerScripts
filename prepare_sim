@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 
-cwd="$PWD"
 # call this function to write to stderr
 echo_stderr ()
 {
@@ -8,6 +7,12 @@ echo_stderr ()
 }
 
 function join_by { local IFS="$1"; shift; echo "$*"; }
+
+cwd="$PWD"
+
+relpath(){
+    python3 -c "import os.path; print(os.path.relpath(os.path.realpath('$1'), os.path.realpath('${2:-$PWD}')), end='');"
+}
 
 # Check if inside a valid repository
 if (git rev-parse --is-inside-work-tree 2> /dev/null 1>&2); then
@@ -20,11 +25,12 @@ fi
 
 # get root directory of repository
 repo_root="$(git rev-parse --show-toplevel)"
+repo_git_dir="$(git rev-parse --git-dir)"
 
 pushd $repo_root > /dev/null
     # Create directory to store pending simulations
     # Create the dir_to_create_sims if not present
-    dir_to_create_sims="../pending_sims_$(basename "$repo_root")"
+    dir_to_create_sims="$repo_root/../pending_sims_$(basename "$repo_root")"
     if [[ ! -d "$dir_to_create_sims" ]]; then
         if mkdir "$dir_to_create_sims"; then
             :
@@ -36,23 +42,36 @@ pushd $repo_root > /dev/null
     # Ask for simulation name
     while read -p "Enter Simulation Name (type 'exit' to exit): " sim_name; do
 
-        if [[ -e "./$dir_to_create_sims/$sim_name" ]]; then
+        if [[ -e "$dir_to_create_sims/$sim_name" ]]; then
             echo_stderr "could not create $dir_to_create_sims/$sim_name, an object by this name already exists"
         elif [[ "$sim_name" == "exit" ]]; then
             echo_stderr "Exitting without preparing"
             exit 1
         else
-            mkdir "$dir_to_create_sims/$sim_name"
+            if mkdir "$dir_to_create_sims/$sim_name"; then :
+            else
+                err_code=$?
+                echo_stderr "Could not create directory $dir_to_create_sims/$sim_name. Check write permissions"
+                exit $err_code
+            fi
             break
         fi
         echo "$dir_to_create_sims/$sim_name"
     done
 popd > /dev/null
 
+pushd $repo_root > /dev/null &&
+    git rev-parse HEAD | head -c -1 > "$dir_to_create_sims/$sim_name/.commit_id" &&
+    subpatch.sh make > "$dir_to_create_sims/$sim_name/.patch" &&
+popd
 
-pushd $repo_root > /dev/null
-    git rev-parse HEAD | head -c -1 > $dir_to_create_sims/$sim_name/.commit_id
-    subpatch.sh make > $dir_to_create_sims/$sim_name/.patch
-    echo -n "$cwd" > $dir_to_create_sims/$sim_name/cwd
-    join_by $'\n' "$@" > $dir_to_create_sims/$sim_name/command
+err_code=$?
+if [[ $err_code -ne 0 ]]; then
+    echo_stderr "Failed to create a patch :("
+    exit $err_code
+fi
+
+pushd "$dir_to_create_sims/$sim_name" > /dev/null &&
+    relpath "$cwd" > cwd &&
+    join_by $'\n' "$@" > command &&
 popd > /dev/null

@@ -6,37 +6,67 @@ echo_stderr ()
     echo "$@" >&2
 }
 
+function check_dir_valid() {
+    inputdir="$1"
+    if [[ -z "$inputdir" ]]; then
+        echo_stderr "inputdir is empty, illegal"
+        exit 1  # exit script, something went wrong
+    fi
+
+    pushd "$inputdir" > /dev/null &&
+        inputdir="$PWD" &&
+    popd > /dev/null
+    err_code=$?
+    if [[ $err_code -ne 0 ]]; then
+        echo_stderr "'$inputdir' does not appear to be a valid directory"
+        exit $err_code
+    else
+        echo -n "$inputdir"
+    fi
+}
+
 function join_by { local IFS="$1"; shift; echo "$*"; }
 
-sim_preparation_dir="$1"
-pushd "$sim_preparation_dir" &&
-    sim_preparation_dir="$PWD" &&
-popd
-err_code=$?
-if [[ $err_code -ne 0 ]]; then
-    echo_stderr "'$sim_preparation_dir' does not appear to be a valid directory"
-    exit $err_code
-fi
+function clean_up_repo() {
+    if [[ -z "$1" ]]; then
+        echo_stderr "source_repo_root is empty, illegal"
+        exit 1  # exit script, something went wrong
+    fi
+    pushd "$1" > /dev/null &&
+        git reset --hard &&
+        git submodule foreach --recursive git reset --hard &&
+        git submodule update --recursive --init
+    popd > /dev/null
+}
 
-# Shift to the relevant directory of the program
-if cd "$(cat $sim_preparation_dir/cwd)"; then
-    :
-else
-    echo_stderr "Could not change to directory from which to run the command"
-    exit $?
+sim_prep_dir_arg="$1"
+if [[ -z "$sim_prep_dir_arg" ]]; then
+    echo_stderr "Need to specify the sim preparation directory as an argument"
+    exit 1
 fi
+sim_preparation_dir=$(check_dir_valid "$sim_prep_dir_arg")
+echo "==================================="$(echo -n "$sim_prep_dir_arg" | sed 's/./=/g')
+echo "Performind Simulation in directory $sim_prep_dir_arg"
+echo "==================================="$(echo -n "$sim_prep_dir_arg" | sed 's/./=/g')
 
-# Check if inside a valid repository
-if (git rev-parse --is-inside-work-tree 2> /dev/null 1>&2); then
-    :
-else
-    err_code=$?
-    echo "The directory from which to run the command is not inside the git repository"
-    exit $err_code
-fi
+# relevant directory from which to run the program
+sim_working_dir=$(check_dir_valid "$sim_preparation_dir/$(cat $sim_preparation_dir/cwd)")
 
-# get root directory of source repository (it is assumed that the current working directory is inside that)
-source_repo_root="$(git rev-parse --show-toplevel)"
+# validate working directory
+pushd $sim_working_dir > /dev/null
+    # Check if inside a valid repository
+    if (git rev-parse --is-inside-work-tree 2> /dev/null 1>&2); then
+        :
+    else
+        err_code=$?
+        echo "The directory from which to run the command is not inside the git repository"
+        exit $err_code
+    fi
+
+    # get root directory of source repository (it is assumed that the current working directory is inside that)
+    source_repo_root="$(git rev-parse --show-toplevel)"
+popd >/dev/null
+
 
 # Verify the validity of the repository in source_repo_root
 pushd $source_repo_root >/dev/null
@@ -47,17 +77,35 @@ pushd $source_repo_root >/dev/null
 popd >/dev/null
 
 # Apply patches to source directory as necessary
-pushd $source_repo_root > /dev/null
+pushd $source_repo_root > /dev/null &&
     # Checkout and run relevant simulation
-    checkoutsim.sh $sim_preparation_dir &&
-        cd "$(cat $sim_preparation_dir/cwd)" &&
-        mapfile -t command_array < $sim_preparation_dir/command &&
-        (echo "Running The following command:";
-         echo "${command_array[@]}") &&
+    checkoutsim.sh $sim_preparation_dir
+    err_code=$?
+    if [[ $err_code -ne 0 ]]; then
+        echo_stderr "The checkout of the simulation did not work out"
 
-        "${command_array[@]}" &&
+        # This is safe because the repository was verified to be clean before running checkoutsim.sh
+        clean_up_repo .
+        exit $err_code
+    fi
+popd >/dev/null
 
-        git reset --hard &&
-        git submodule foreach --recursive git reset --hard &&
-        git submodule update --recursive --init
+pushd $sim_working_dir > /dev/null &&
+    mapfile -t command_array < "$sim_preparation_dir/command" &&
+    (echo "Running The following command:";
+     echo "=============================================================";
+     echo "${command_array[@]}";
+     echo "=============================================================") &&
+
+    "${command_array[@]}"
+
+    err_code=$?
+    if [[ $err_code -ne 0 ]]; then
+        echo_stderr "The simulation exited with some error"
+    else
+        echo "completed simulation $sim_prep_dir_arg"
+    fi
+    clean_up_repo .
+    exit $err_code
 popd > /dev/null
+
