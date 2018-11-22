@@ -6,6 +6,10 @@ echo_stderr ()
     echo "$@" >&2
 }
 
+relpath(){
+    python3 -c "import os.path; print(os.path.relpath(os.path.realpath('$1'), os.path.realpath('${2:-$PWD}')), end='');"
+}
+
 function check_dir_valid() {
     inputdir="$1"
     if [[ -z "$inputdir" ]]; then
@@ -46,13 +50,14 @@ if [[ -z "$sim_prep_dir_arg" ]]; then
 fi
 sim_preparation_dir=$(check_dir_valid "$sim_prep_dir_arg")
 echo "==================================="$(echo -n "$sim_prep_dir_arg" | sed 's/./=/g')
-echo "Performind Simulation in directory $sim_prep_dir_arg"
+echo "Performing Simulation in directory $sim_prep_dir_arg"
 echo "==================================="$(echo -n "$sim_prep_dir_arg" | sed 's/./=/g')
 
 # relevant directory from which to run the program
 sim_working_dir=$(check_dir_valid "$sim_preparation_dir/$(cat $sim_preparation_dir/cwd)")
 
 # validate working directory
+# calculate sim_working_dir relative to the repository root
 pushd $sim_working_dir > /dev/null
     # Check if inside a valid repository
     if (git rev-parse --is-inside-work-tree 2> /dev/null 1>&2); then
@@ -65,32 +70,56 @@ pushd $sim_working_dir > /dev/null
 
     # get root directory of source repository (it is assumed that the current working directory is inside that)
     source_repo_root="$(git rev-parse --show-toplevel)"
+    sim_working_dir=$(relpath "$sim_working_dir" "$source_repo_root")
 popd >/dev/null
 
-
-# Verify the validity of the repository in source_repo_root
-pushd $source_repo_root >/dev/null
-    if [[ $(git status --porcelain | wc -l) -ne 0 ]]; then
-        echo_stderr "There appear to be untracked/uncommitted files in \"$source_repo_root\". Will not continue checkout"
-        exit 1
-    fi
+# Copy source repository to a temporary directory inside the simulation
+# preparation directory This is to ensure there is absolutely no collision
+# between different experiments and so that the original repository faces no
+# threat of damage. while this takes up a certain amount of disk space, it's a
+# cheap price to pay for the safety that it guarentees
+pushd $sim_preparation_dir > /dev/null &&
+    temp_repo_directory=$(mktemp -d -p "$PWD") &&
+    echo "Copying source repository to $temp_repo_directory" &&
+    cp -r $source_repo_root $temp_repo_directory &&
+    pushd $temp_repo_directory/$(basename $source_repo_root) >/dev/null &&
+        # This is in case the experiment repository is a submodule itself
+        if [[ ! -d .git ]]; then
+            actual_git_dir=$(git rev-parse --git-dir)
+            rm .git && cp -r $actual_git_dir -t .
+        else
+            :
+        fi &&
+    popd >/dev/null &&
 popd >/dev/null
+
+err_code=$?
+if [[ $err_code -ne 0 ]]; then
+    echo_stderr "The copy of the simulation repository did not work out"
+    echo_stderr "Removing temp directory $temp_repo_directory"
+    rm -rf $temp_repo_directory
+    exit $err_code
+fi
+
+temp_source_repo_root="$temp_repo_directory/$(basename $source_repo_root)"
+temp_sim_working_dir="$temp_source_repo_root/$sim_working_dir"
 
 # Apply patches to source directory as necessary
-pushd $source_repo_root > /dev/null &&
+pushd $temp_source_repo_root > /dev/null &&
     # Checkout and run relevant simulation
+    clean_up_repo . &&
     checkoutsim.sh $sim_preparation_dir
     err_code=$?
     if [[ $err_code -ne 0 ]]; then
         echo_stderr "The checkout of the simulation did not work out"
 
         # This is safe because the repository was verified to be clean before running checkoutsim.sh
-        clean_up_repo .
+        rm -rf $temp_repo_directory
         exit $err_code
     fi
 popd >/dev/null
 
-pushd $sim_working_dir > /dev/null &&
+pushd $temp_sim_working_dir > /dev/null &&
     mapfile -t command_array < "$sim_preparation_dir/command" &&
     (echo "Running The following command:";
      echo "=============================================================";
@@ -105,7 +134,6 @@ pushd $sim_working_dir > /dev/null &&
     else
         echo "completed simulation $sim_prep_dir_arg"
     fi
-    clean_up_repo .
+    rm -rf $temp_repo_directory
     exit $err_code
 popd > /dev/null
-
