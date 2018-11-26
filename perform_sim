@@ -48,13 +48,13 @@ if [[ -z "$sim_prep_dir_arg" ]]; then
     echo_stderr "Need to specify the sim preparation directory as an argument"
     exit 1
 fi
-sim_preparation_dir=$(check_dir_valid "$sim_prep_dir_arg")
+sim_preparation_dir=$(check_dir_valid "$sim_prep_dir_arg") || exit $?
 echo "==================================="$(echo -n "$sim_prep_dir_arg" | sed 's/./=/g')
 echo "Performing Simulation in directory $sim_prep_dir_arg"
 echo "==================================="$(echo -n "$sim_prep_dir_arg" | sed 's/./=/g')
 
 # relevant directory from which to run the program
-sim_working_dir=$(check_dir_valid "$sim_preparation_dir/$(cat $sim_preparation_dir/cwd)")
+sim_working_dir=$(check_dir_valid "$sim_preparation_dir/$(cat $sim_preparation_dir/cwd)") || exit $?
 
 # validate working directory
 # calculate sim_working_dir relative to the repository root
