@@ -21,7 +21,7 @@ case $action in
         ;;
     pop )
         $SOURCE_DIR/git_recursive_stash_apply &&
-            $SOURCE_DIR/git_recursive_stash_delete
+            $SOURCE_DIR/git_recursive_stash_drop
         ;;
     *)
         echo_stderr "Invalid command: expected one of save, apply or pop"

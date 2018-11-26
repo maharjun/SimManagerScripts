@@ -28,7 +28,7 @@ if [[ "$current_recstash_id" == "root" ]]; then
 	:
 else
 	err_code=$?
-    echo_stderr "Not inside the root repository. Delete can only be called from the root repository"
+    echo_stderr "Not inside the root repository. Drop can only be called from the root repository"
     exit $err_code
 fi
 
