@@ -19,7 +19,7 @@ if (git rev-parse --is-inside-work-tree 2> /dev/null 1>&2); then
     :
 else
     err_code=$?
-    echo "Not inside git repository"
+    echo_stderr "Not inside git repository"
     exit $err_code
 fi
 
@@ -39,31 +39,42 @@ pushd $repo_root > /dev/null
         fi
     fi
 
-    # Ask for simulation name
-    while read -p "Enter Simulation Name (type 'exit' to exit): " sim_name; do
+    # Ask for simulation name if not specified
+    if [[ "$1" != "-n" ]]; then
+        while read -p "Enter Simulation Name (type 'exit' to exit): " sim_name; do
 
+            if [[ -e "$dir_to_create_sims/$sim_name" ]]; then
+                echo_stderr "could not create $dir_to_create_sims/$sim_name, an object by this name already exists"
+            elif [[ "$sim_name" == "exit" ]]; then
+                echo_stderr "Exitting without preparing"
+                exit 1
+            else
+                break
+            fi
+        done
+    else
+        shift
+        sim_name="$1"
+        shift
         if [[ -e "$dir_to_create_sims/$sim_name" ]]; then
             echo_stderr "could not create $dir_to_create_sims/$sim_name, an object by this name already exists"
-        elif [[ "$sim_name" == "exit" ]]; then
-            echo_stderr "Exitting without preparing"
             exit 1
-        else
-            if mkdir "$dir_to_create_sims/$sim_name"; then :
-            else
-                err_code=$?
-                echo_stderr "Could not create directory $dir_to_create_sims/$sim_name. Check write permissions"
-                exit $err_code
-            fi
-            break
         fi
-        echo "$dir_to_create_sims/$sim_name"
-    done
+    fi
+
+    # Try creating the directory
+    if mkdir "$dir_to_create_sims/$sim_name"; then :
+    else
+        err_code=$?
+        echo_stderr "Could not create directory $dir_to_create_sims/$sim_name. Check write permissions"
+        exit $err_code
+    fi
 popd > /dev/null
 
 pushd $repo_root > /dev/null &&
     git rev-parse HEAD | head -c -1 > "$dir_to_create_sims/$sim_name/.commit_id" &&
     subpatch.sh make > "$dir_to_create_sims/$sim_name/.patch" &&
-popd
+popd > /dev/null
 
 err_code=$?
 if [[ $err_code -ne 0 ]]; then
