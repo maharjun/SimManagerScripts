@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 
+# EDGE CASES: If the commit of the simulation is the commit where a .gitignore
+# file exists but is yet untracked, this could lead to all sorts of problems
+
 # call this function to write to stderr
+shopt -s dotglob  # critical in order to copy everything
+
 echo_stderr ()
 {
     echo "$@" >&2
@@ -31,15 +36,32 @@ function check_dir_valid() {
 
 function join_by { local IFS="$1"; shift; echo "$*"; }
 
-function clean_up_repo() {
+function reset_repo() {
     if [[ -z "$1" ]]; then
         echo_stderr "source_repo_root is empty, illegal"
         exit 1  # exit script, something went wrong
+    elif ! (basename $(readlink -f "$1") | grep -q tmp.); then
+        echo_stderr "It appears that the repository being reset is not a temporary copy, illegal"
+        exit 1
     fi
     pushd "$1" > /dev/null &&
         git reset --hard &&
         git submodule foreach --recursive git reset --hard &&
-        git submodule update --recursive --init
+        git submodule update --recursive --init &&
+    popd > /dev/null
+}
+
+function clean_up_repo() {
+    if [[ -z "$1" ]]; then
+        echo_stderr "source_repo_root is empty, illegal"
+        exit 1  # exit script, something went wrong
+    elif ! (basename $(readlink -f "$1") | grep -q tmp.); then
+        echo_stderr "It appears that the repository being cleaned up is not a temporary copy, illegal"
+        exit 1
+    fi
+    pushd "$1" > /dev/null &&
+        git clean -f &&
+        git submodule foreach --recursive git clean -f &&
     popd > /dev/null
 }
 
@@ -70,6 +92,7 @@ pushd $sim_working_dir > /dev/null
 
     # get root directory of source repository (it is assumed that the current working directory is inside that)
     source_repo_root="$(git rev-parse --show-toplevel)"
+    source_git_dir="$source_repo_root/$(git rev-parse --git-dir)"
     sim_working_dir=$(relpath "$sim_working_dir" "$source_repo_root")
 popd >/dev/null
 
@@ -81,12 +104,11 @@ popd >/dev/null
 pushd $sim_preparation_dir > /dev/null &&
     temp_repo_directory=$(mktemp -d -p "$PWD") &&
     echo "Copying source repository to $temp_repo_directory" &&
-    cp -r $source_repo_root $temp_repo_directory &&
-    pushd $temp_repo_directory/$(basename $source_repo_root) >/dev/null &&
+    cp -r $source_repo_root/* $temp_repo_directory &&
+    pushd $temp_repo_directory >/dev/null &&
         # This is in case the experiment repository is a submodule itself
         if [[ ! -d .git ]]; then
-            actual_git_dir=$(git rev-parse --git-dir)
-            rm .git && cp -r $actual_git_dir -t .
+            rm .git && cp -r $source_git_dir ./.git
         else
             :
         fi &&
@@ -101,14 +123,14 @@ if [[ $err_code -ne 0 ]]; then
     exit $err_code
 fi
 
-temp_source_repo_root="$temp_repo_directory/$(basename $source_repo_root)"
+temp_source_repo_root="$temp_repo_directory"
 temp_sim_working_dir="$temp_source_repo_root/$sim_working_dir"
 
 # Apply patches to source directory as necessary
 pushd $temp_source_repo_root > /dev/null &&
     # Checkout and run relevant simulation
-    clean_up_repo . &&
-    checkoutsim.sh $sim_preparation_dir
+    reset_repo . && clean_up_repo . &&
+    checkoutsim.sh $sim_preparation_dir && clean_up_repo .
     err_code=$?
     if [[ $err_code -ne 0 ]]; then
         echo_stderr "The checkout of the simulation did not work out"
