@@ -8,81 +8,29 @@ echo_stderr ()
 
 function join_by { local IFS="$1"; shift; echo "$*"; }
 
-cwd="$PWD"
-
-relpath(){
-    python3 -c "import os.path; print(os.path.relpath(os.path.realpath('$1'), os.path.realpath('${2:-$PWD}')), end='');"
-}
-
-# Check if inside a valid repository
-if (git rev-parse --is-inside-work-tree 2> /dev/null 1>&2); then
-    :
+# Ask for simulation name if not specified
+if [[ "$1" != "-n" ]]; then
+    pack_args=()
 else
-    err_code=$?
-    echo_stderr "Not inside git repository"
-    exit $err_code
+    shift
+    sim_name="$1"
+    shift
+    pack_args=("-n" "$sim_name")
 fi
 
-# get root directory of repository
-repo_root="$(git rev-parse --show-toplevel)"
-repo_git_dir="$(git rev-parse --git-dir)"
 
-pushd $repo_root > /dev/null
-    # Create directory to store pending simulations
-    # Create the dir_to_create_sims if not present
-    dir_to_create_sims="$repo_root/../pending_sims_$(basename "$repo_root")"
-    if [[ ! -d "$dir_to_create_sims" ]]; then
-        if mkdir "$dir_to_create_sims"; then
-            :
-        else
-            echo_stderr "Could Not create directory '$dir_to_create_sims' to create the simulation defs"
-        fi
-    fi
+SOURCE="${BASH_SOURCE[0]}"
+SOURCE=$(readlink -f "$SOURCE")
+SOURCE_DIR=$(dirname "$SOURCE")
 
-    # Ask for simulation name if not specified
-    if [[ "$1" != "-n" ]]; then
-        while read -p "Enter Simulation Name (type 'exit' to exit): " sim_name; do
-
-            if [[ -e "$dir_to_create_sims/$sim_name" ]]; then
-                echo_stderr "could not create $dir_to_create_sims/$sim_name, an object by this name already exists"
-            elif [[ "$sim_name" == "exit" ]]; then
-                echo_stderr "Exitting without preparing"
-                exit 1
-            else
-                break
-            fi
-        done
-    else
-        shift
-        sim_name="$1"
-        shift
-        if [[ -e "$dir_to_create_sims/$sim_name" ]]; then
-            echo_stderr "could not create $dir_to_create_sims/$sim_name, an object by this name already exists"
-            exit 1
-        fi
-    fi
-
-    # Try creating the directory
-    if mkdir "$dir_to_create_sims/$sim_name"; then :
-    else
-        err_code=$?
-        echo_stderr "Could not create directory $dir_to_create_sims/$sim_name. Check write permissions"
-        exit $err_code
-    fi
-popd > /dev/null
-
-pushd $repo_root > /dev/null &&
-    git rev-parse HEAD | head -c -1 > "$dir_to_create_sims/$sim_name/.commit_id" &&
-    subpatch.sh make > "$dir_to_create_sims/$sim_name/.patch" &&
-popd > /dev/null
+simdir=$($SOURCE_DIR/pack_sim_dir "${pack_args[@]}")
 
 err_code=$?
 if [[ $err_code -ne 0 ]]; then
-    echo_stderr "Failed to create a patch :("
+    echo_stderr "Failed to create the simulation directory :("
     exit $err_code
 fi
 
-pushd "$dir_to_create_sims/$sim_name" > /dev/null &&
-    relpath "$cwd" > cwd &&
+pushd "$simdir" > /dev/null &&
     join_by $'\n' "$@" > command &&
 popd > /dev/null

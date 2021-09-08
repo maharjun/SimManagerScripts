@@ -11,142 +11,39 @@ echo_stderr ()
     echo "$@" >&2
 }
 
-relpath(){
-    python3 -c "import os.path; print(os.path.relpath(os.path.realpath('$1'), os.path.realpath('${2:-$PWD}')), end='');"
-}
-
-function check_dir_valid() {
-    inputdir="$1"
-    if [[ -z "$inputdir" ]]; then
-        echo_stderr "inputdir is empty, illegal"
-        exit 1  # exit script, something went wrong
-    fi
-
-    pushd "$inputdir" > /dev/null &&
-        inputdir="$PWD" &&
-    popd > /dev/null
-    err_code=$?
-    if [[ $err_code -ne 0 ]]; then
-        echo_stderr "'$inputdir' does not appear to be a valid directory"
-        exit $err_code
-    else
-        echo -n "$inputdir"
-    fi
-}
-
-function join_by { local IFS="$1"; shift; echo "$*"; }
-
-function reset_repo() {
-    if [[ -z "$1" ]]; then
-        echo_stderr "source_repo_root is empty, illegal"
-        exit 1  # exit script, something went wrong
-    elif ! (basename $(readlink -f "$1") | grep -q tmp.); then
-        echo_stderr "It appears that the repository being reset is not a temporary copy, illegal"
-        exit 1
-    fi
-    pushd "$1" > /dev/null &&
-        git reset --hard &&
-        git submodule foreach --recursive git reset --hard &&
-        git submodule update --recursive --init &&
-    popd > /dev/null
-}
-
-function clean_up_repo() {
-    if [[ -z "$1" ]]; then
-        echo_stderr "source_repo_root is empty, illegal"
-        exit 1  # exit script, something went wrong
-    elif ! (basename $(readlink -f "$1") | grep -q tmp.); then
-        echo_stderr "It appears that the repository being cleaned up is not a temporary copy, illegal"
-        exit 1
-    fi
-    pushd "$1" > /dev/null &&
-        git clean -f &&
-        git submodule foreach --recursive git clean -f &&
-    popd > /dev/null
-}
+SOURCE="${BASH_SOURCE[0]}"
+SOURCE=$(readlink -f "$SOURCE")
+SOURCE_DIR=$(dirname "$SOURCE")
 
 sim_prep_dir_arg="$1"
-if [[ -z "$sim_prep_dir_arg" ]]; then
-    echo_stderr "Need to specify the sim preparation directory as an argument"
-    exit 1
-fi
-sim_preparation_dir=$(check_dir_valid "$sim_prep_dir_arg") || exit $?
-echo "==================================="$(echo -n "$sim_prep_dir_arg" | sed 's/./=/g')
-echo "Performing Simulation in directory $sim_prep_dir_arg"
-echo "==================================="$(echo -n "$sim_prep_dir_arg" | sed 's/./=/g')
 
-# relevant directory from which to run the program
-sim_working_dir=$(check_dir_valid "$sim_preparation_dir/$(cat $sim_preparation_dir/cwd)") || exit $?
+echo "================================="$(echo -n "$sim_prep_dir_arg" | sed 's/./=/g')
+echo "Unpacking Simulation in directory $sim_prep_dir_arg"
+echo "================================="$(echo -n "$sim_prep_dir_arg" | sed 's/./=/g')
 
-# validate working directory
-# calculate sim_working_dir relative to the repository root
-pushd $sim_working_dir > /dev/null
-    # Check if inside a valid repository
-    if (git rev-parse --is-inside-work-tree 2> /dev/null 1>&2); then
-        :
-    else
-        err_code=$?
-        echo "The directory from which to run the command is not inside the git repository"
-        exit $err_code
-    fi
-
-    # get root directory of source repository (it is assumed that the current working directory is inside that)
-    source_repo_root="$(git rev-parse --show-toplevel)"
-    source_git_dir="$source_repo_root/$(git rev-parse --git-dir)"
-    sim_working_dir=$(relpath "$sim_working_dir" "$source_repo_root")
-popd >/dev/null
-
-# Copy source repository to a temporary directory inside the simulation
-# preparation directory This is to ensure there is absolutely no collision
-# between different experiments and so that the original repository faces no
-# threat of damage. while this takes up a certain amount of disk space, it's a
-# cheap price to pay for the safety that it guarentees
-pushd $sim_preparation_dir > /dev/null &&
-    temp_repo_directory=$(mktemp -d -p "$PWD") &&
-    echo "Copying source repository to $temp_repo_directory" &&
-    cp -r $source_repo_root/* $temp_repo_directory &&
-    pushd $temp_repo_directory >/dev/null &&
-        # This is in case the experiment repository is a submodule itself
-        if [[ ! -d .git ]]; then
-            rm .git && cp -r $source_git_dir ./.git
-        else
-            :
-        fi &&
-    popd >/dev/null &&
-popd >/dev/null
-
+unpack_output=$($SOURCE_DIR/unpack_sim_dir "$@")
 err_code=$?
 if [[ $err_code -ne 0 ]]; then
-    echo_stderr "The copy of the simulation repository did not work out"
-    echo_stderr "Removing temp directory $temp_repo_directory"
-    rm -rf $temp_repo_directory
+    echo_stderr "Failed to unpack the sim directory $1 :("
     exit $err_code
 fi
+unpack_output="$(tac <<< "$unpack_output")"
+mapfile -t return_array <<< "$unpack_output"
+sim_preparation_dir="${return_array[2]}"
+temp_sim_working_dir="${return_array[1]}"
+temp_repo_directory="${return_array[0]}"
 
-temp_source_repo_root="$temp_repo_directory"
-temp_sim_working_dir="$temp_source_repo_root/$sim_working_dir"
+echo "temp_sim_working_dir = $temp_sim_working_dir"
+echo "temp_repo_directory = $temp_repo_directory"
+echo "sim_preparation_dir = $sim_preparation_dir"
 
-# Apply patches to source directory as necessary
-pushd $temp_source_repo_root > /dev/null &&
-    # Checkout and run relevant simulation
-    reset_repo . && clean_up_repo . &&
-    checkoutsim.sh $sim_preparation_dir && clean_up_repo .
-    err_code=$?
-    if [[ $err_code -ne 0 ]]; then
-        echo_stderr "The checkout of the simulation did not work out"
-
-        # This is safe because the repository was verified to be clean before running checkoutsim.sh
-        rm -rf $temp_repo_directory
-        exit $err_code
-    fi
-popd >/dev/null
-
+# Run the command stored in the 
 pushd $temp_sim_working_dir > /dev/null &&
     mapfile -t command_array < "$sim_preparation_dir/command" &&
-    (echo "Running The following command:";
-     echo "=============================================================";
-     echo "${command_array[@]}";
-     echo "=============================================================") &&
+    (echo_stderr "Running The following command:";
+     echo_stderr "=============================================================";
+     echo_stderr "${command_array[@]}";
+     echo_stderr "=============================================================") &&
 
     "${command_array[@]}"
 

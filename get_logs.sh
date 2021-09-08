@@ -4,5 +4,5 @@ while read dirname; do
     echo "$dirname"
     echo "$dirname" | sed 's/./=/g'
     echo ""
-    echo "$(cat $dirname/logs/LSTMSpikingRelNets-babi_LOG.txt | tail -n 20 | sed 's/^/    /')"
+    cat $dirname/logs/LSTMSpikingRelNets-babi_LOG.txt | tail -n 60 | sed 's/^/    /'
 done
